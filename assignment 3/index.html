@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interactive Book Showcase</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23af4f2d'/%3E%3Cpath d='M18 14h20a8 8 0 0 1 8 8v28H26a8 8 0 0 0-8 8V14Z' fill='%23fff7ee'/%3E%3Cpath d='M26 14h20v36H26a8 8 0 0 0-8 8V22a8 8 0 0 1 8-8Z' fill='%23f6dcc6'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=Manrope:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/@remix-run/router@1.23.2/dist/router.umd.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/react-router@6.30.3/dist/umd/react-router.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/react-router-dom@6.30.3/dist/umd/react-router-dom.development.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.28.4/babel.min.js"></script>
+    <script type="text/babel" data-presets="react">
+      const RouterView = ReactRouterDOM;
+
+      function SmallButton({ children, onClick, active, type = "button" }) {
+        var className = "small-button";
+        if (active) {
+          className = className + " is-active";
+        }
+        return (
+          <button
+            type={type}
+            className={className}
+            onClick={onClick}
+          >
+            {children}
+          </button>
+        );
+      }
+
+      function StateCard({ title, message, tone = "info" }) {
+        var toneClass = tone || "info";
+        var className = "state-card " + toneClass;
+        return (
+          <div className={className}>
+            <h3>{title}</h3>
+            <p>{message}</p>
+          </div>
+        );
+      }
+
+      function BookCard({ book, isFavorite, onToggleFavorite }) {
+        var image = book.cover;
+        if (!image) {
+          image = "https://via.placeholder.com/160x230?text=No+Cover";
+        }
+        var authorText = "Author not listed";
+        if (book.authors.length > 0) {
+          authorText = book.authors.join(", ");
+        }
+        var buttonText = "Favorite";
+        if (isFavorite) {
+          buttonText = "Saved";
+        }
+        return (
+          <article className="book-card">
+            <RouterView.Link className="book-card-link" to={"/books/" + book.id}>
+              <div className="book-cover-wrap">
+                <img className="book-cover" src={image} alt={book.title + " cover"} />
+              </div>
+              <div className="book-copy">
+                <p className="book-author">{authorText}</p>
+                <h3>{book.title}</h3>
+              </div>
+            </RouterView.Link>
+            <div className="book-card-actions">
+              <SmallButton onClick={function() { onToggleFavorite(book.id); }} active={isFavorite}>
+                {buttonText}
+              </SmallButton>
+            </div>
+          </article>
+        );
+      }
+
+      function TopNav() {
+        return (
+          <header className="top-nav">
+            <RouterView.Link className="brand-mark" to="/">
+              <span className="brand-pill">Book Room</span>
+              <div>
+                <strong>Interactive Book Showcase</strong>
+                <p>Little React assignment with search, favorites, and detail pages.</p>
+              </div>
+            </RouterView.Link>
+            <nav className="nav-links">
+              <RouterView.NavLink
+                to="/"
+                className={function(obj) { return obj.isActive ? "nav-link is-active" : "nav-link"; }}
+                end
+              >
+                Book List
+              </RouterView.NavLink>
+              <RouterView.NavLink
+                to="/favorites"
+                className={function(obj) { return obj.isActive ? "nav-link is-active" : "nav-link"; }}
+              >
+                Favorites
+              </RouterView.NavLink>
+            </nav>
+          </header>
+        );
+      }
+
+      window.AppBits = {
+        SmallButton,
+        StateCard,
+        BookCard,
+        TopNav,
+      };
+    </script>
+    <script type="text/babel" data-presets="react">
+      const { BrowserRouter, HashRouter, Routes, Route, Link, useParams } = ReactRouterDOM;
+      const { useEffect, useState } = React;
+      const {
+        SmallButton: SmallButtonUi,
+        StateCard: StateCardUi,
+        BookCard: BookCardUi,
+        TopNav: TopNavUi,
+      } = window.AppBits;
+
+      var GOOGLE_API_BASE = "https://www.googleapis.com/books/v1/volumes";
+      var OPEN_LIBRARY_BASE = "https://openlibrary.org";
+      var OPEN_LIBRARY_SEARCH = OPEN_LIBRARY_BASE + "/search.json";
+      var FAVORITES_KEY = "assignment3.favoriteBooks";
+      var DEFAULT_COVER = "https://via.placeholder.com/160x230?text=No+Cover";
+      var RouterShell = HashRouter;
+      if (window.location.protocol !== "file:") {
+        RouterShell = BrowserRouter;
+      }
+
+      function makeBookId(source, rawId) {
+        return source + "__" + encodeURIComponent(rawId);
+      }
+
+      function parseBookId(bookId) {
+        var divider = bookId.indexOf("__");
+        if (divider === -1) {
+          return {
+            source: "google",
+            rawId: bookId,
+          };
+        }
+        var source = bookId.slice(0, divider);
+        var rawId = decodeURIComponent(bookId.slice(divider + 2));
+        return {
+          source: source,
+          rawId: rawId,
+        };
+      }
+
+      function normalizeGoogleBook(item) {
+        var info = item.volumeInfo;
+        if (!info) {
+          info = {};
+        }
+        var imageLinks = info.imageLinks;
+        if (!imageLinks) {
+          imageLinks = {};
+        }
+        var title = info.title;
+        if (!title) {
+          title = "Untitled";
+        }
+        var authors = info.authors;
+        if (!authors) {
+          authors = [];
+        }
+        var description = info.description;
+        if (!description) {
+          description = "No description was provided for this book.";
+        }
+        var cover = imageLinks.thumbnail;
+        if (!cover) {
+          cover = imageLinks.smallThumbnail;
+        }
+        if (!cover) {
+          cover = DEFAULT_COVER;
+        }
+        var categories = info.categories;
+        if (!categories) {
+          categories = [];
+        }
+        var publisher = info.publisher;
+        if (!publisher) {
+          publisher = "Unknown publisher";
+        }
+        var publishedDate = info.publishedDate;
+        if (!publishedDate) {
+          publishedDate = "Unknown date";
+        }
+        var pageCount = info.pageCount;
+        if (!pageCount) {
+          pageCount = "Not listed";
+        }
+        return {
+          id: makeBookId("google", item.id),
+          title: title,
+          authors: authors,
+          description: description,
+          cover: cover,
+          categories: categories,
+          publisher: publisher,
+          publishedDate: publishedDate,
+          pageCount: pageCount,
+        };
+      }
+
+      function normalizeOpenLibrarySearchBook(item) {
+        var title = item.title;
+        if (!title) {
+          title = "Untitled";
+        }
+        var authors = item.author_name;
+        if (!authors) {
+          authors = [];
+        }
+        var description = "Open the detail page to see more about this book.";
+        var cover = item.cover_i ? "https://covers.openlibrary.org/b/id/" + item.cover_i + "-L.jpg" : DEFAULT_COVER;
+        var categories = item.subject;
+        if (!categories) {
+          categories = [];
+        }
+        categories = categories.slice(0, 3);
+        var publisher = "Unknown publisher";
+        if (item.publisher && item.publisher.length > 0) {
+          publisher = item.publisher[0];
+        }
+        var publishedDate = "Unknown date";
+        if (item.first_publish_year) {
+          publishedDate = String(item.first_publish_year);
+        }
+        var pageCount = item.number_of_pages_median;
+        if (!pageCount) {
+          pageCount = "Not listed";
+        }
+        return {
+          id: makeBookId("open", item.key),
+          title: title,
+          authors: authors,
+          description: description,
+          cover: cover,
+          categories: categories,
+          publisher: publisher,
+          publishedDate: publishedDate,
+          pageCount: pageCount,
+        };
+      }
+
+      function normalizeOpenLibraryDetailBook(item, authors) {
+        var description = "No description was provided for this book.";
+        if (typeof item.description === "string") {
+          description = item.description;
+        } else if (item.description && item.description.value) {
+          description = item.description.value;
+        }
+        var cover = DEFAULT_COVER;
+        if (Array.isArray(item.covers) && item.covers.length > 0) {
+          cover = "https://covers.openlibrary.org/b/id/" + item.covers[0] + "-L.jpg";
+        }
+        var categories = [];
+        if (item.subjects) {
+          categories = item.subjects.slice(0, 4);
+        }
+        var publisher = "Open Library";
+        var publishedDate = item.first_publish_date;
+        if (!publishedDate) {
+          publishedDate = "Unknown date";
+        }
+        var pageCount = item.number_of_pages;
+        if (!pageCount) {
+          pageCount = "Not listed";
+        }
+        return {
+          id: makeBookId("open", item.key),
+          title: item.title || "Untitled",
+          authors: authors || [],
+          description: description,
+          cover: cover,
+          categories: categories,
+          publisher: publisher,
+          publishedDate: publishedDate,
+          pageCount: pageCount,
+        };
+      }
+
+      function readFavoriteIds() {
+        try {
+          var raw = window.localStorage.getItem(FAVORITES_KEY);
+          if (!raw) {
+            return [];
+          }
+          var parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed;
+          } else {
+            return [];
+          }
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function stripHtml(value) {
+        var temp = document.createElement("div");
+        temp.innerHTML = value || "";
+        var text = temp.textContent;
+        if (!text) {
+          text = temp.innerText;
+        }
+        if (!text) {
+          text = "";
+        }
+        return text;
+      }
+
+      function fetchGoogleBooks() {
+        return fetch(GOOGLE_API_BASE + "?q=subject:fiction&maxResults=24&printType=books")
+          .then(function(response) {
+            if (!response.ok) {
+              throw new Error("Google Books is not responding right now.");
+            }
+            return response.json();
+          })
+          .then(function(data) {
+            var items = data.items;
+            if (!items) {
+              items = [];
+            }
+            return items.map(normalizeGoogleBook);
+          });
+      }
+
+      function fetchOpenLibraryBooks() {
+        return fetch(OPEN_LIBRARY_SEARCH + "?q=fiction&limit=24")
+          .then(function(response) {
+            if (!response.ok) {
+              throw new Error("Open Library is not responding right now.");
+            }
+            return response.json();
+          })
+          .then(function(data) {
+            var docs = data.docs;
+            if (!docs) {
+              docs = [];
+            }
+            return docs
+              .filter(function(item) {
+                return item.key;
+              })
+              .slice(0, 24)
+              .map(normalizeOpenLibrarySearchBook);
+          });
+      }
+
+      function fetchGoogleBookById(rawId) {
+        return fetch(GOOGLE_API_BASE + "/" + rawId)
+          .then(function(response) {
+            if (!response.ok) {
+              throw new Error("Could not fetch that book.");
+            }
+            return response.json();
+          })
+          .then(function(data) {
+            return normalizeGoogleBook(data);
+          });
+      }
+
+      function fetchOpenLibraryBookById(rawId) {
+        return fetch(OPEN_LIBRARY_BASE + rawId + ".json")
+          .then(function(response) {
+            if (!response.ok) {
+              throw new Error("Could not fetch that book.");
+            }
+            return response.json();
+          })
+          .then(function(data) {
+            var authorsPromises = [];
+            if (data.authors) {
+              authorsPromises = data.authors.slice(0, 4).map(function(authorItem) {
+                var authorKey = authorItem.author && authorItem.author.key;
+                if (!authorKey) {
+                  return Promise.resolve(null);
+                }
+                return fetch(OPEN_LIBRARY_BASE + authorKey + ".json")
+                  .then(function(authorResponse) {
+                    if (!authorResponse.ok) {
+                      return null;
+                    }
+                    return authorResponse.json();
+                  })
+                  .then(function(authorData) {
+                    return authorData.name || null;
+                  })
+                  .catch(function(error) {
+                    return null;
+                  });
+              });
+            }
+            return Promise.all(authorsPromises)
+              .then(function(authors) {
+                return normalizeOpenLibraryDetailBook(data, authors.filter(function(a) { return a; }));
+              });
+          });
+      }
+
+      function fetchBookById(bookId) {
+        var parsed = parseBookId(bookId);
+        var source = parsed.source;
+        var rawId = parsed.rawId;
+        if (source === "open") {
+          return fetchOpenLibraryBookById(rawId);
+        }
+        return fetchGoogleBookById(rawId);
+      }
+
+      function SearchBar({ query, onChange, totalCount, visibleCount, sourceNote }) {
+        return (
+          <section className="search-panel">
+            <div>
+              <p className="eyebrow">Book List Page</p>
+              <h1>Browse a stack of books and narrow them down with search.</h1>
+              <p className="muted-copy">
+                Books are loaded from a public books API when the page mounts. Filter by title or
+                author in real time.
+              </p>
+              {sourceNote ? <p className="source-note">{sourceNote}</p> : null}
+            </div>
+
+            <div className="search-side">
+              <label className="search-label" htmlFor="book-search">
+                Search by title or author
+              </label>
+              <input
+                id="book-search"
+                className="search-input"
+                type="text"
+                value={query}
+                onChange={function(event) { onChange(event.target.value); }}
+                placeholder="Try Harry Potter, Tolkien, mystery..."
+              />
+              <p className="search-note">
+                Showing {visibleCount} of {totalCount} books
+              </p>
+            </div>
+          </section>
+        );
+      }
+
+      function HomePage({ favoriteIds, onToggleFavorite }) {
+        const [books, setBooks] = useState([]);
+        const [query, setQuery] = useState("");
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState("");
+        const [sourceNote, setSourceNote] = useState("");
+
+        useEffect(() => {
+          let isMounted = true;
+
+          async function loadBooks() {
+            try {
+              setLoading(true);
+              setError("");
+              setSourceNote("");
+
+              try {
+                const nextBooks = await fetchGoogleBooks();
+                if (isMounted) {
+                  setBooks(nextBooks);
+                }
+              } catch (googleError) {
+                const nextBooks = await fetchOpenLibraryBooks();
+                if (isMounted) {
+                  setBooks(nextBooks);
+                  setSourceNote("Google Books was busy, so the app switched to Open Library.");
+                }
+              }
+            } catch (fetchError) {
+              if (isMounted) {
+                setError(fetchError.message || "Something went wrong while loading the books.");
+              }
+            } finally {
+              if (isMounted) {
+                setLoading(false);
+              }
+            }
+          }
+
+          loadBooks();
+
+          return () => {
+            isMounted = false;
+          };
+        }, []);
+
+        var cleanQuery = query.trim().toLowerCase();
+        var filteredBooks = books;
+        if (cleanQuery) {
+          filteredBooks = books.filter(function(book) {
+            var inTitle = book.title.toLowerCase().includes(cleanQuery);
+            var inAuthors = book.authors.join(" ").toLowerCase().includes(cleanQuery);
+            return inTitle || inAuthors;
+          });
+        }
+
+        return (
+          <main className="page-shell">
+            <SearchBar
+              query={query}
+              onChange={setQuery}
+              totalCount={books.length}
+              visibleCount={filteredBooks.length}
+              sourceNote={sourceNote}
+            />
+
+            {loading ? (
+              <StateCardUi title="Loading..." message="Fetching books from the API." />
+            ) : null}
+
+            {!loading && error ? (
+              <StateCardUi title="Could not load books" message={error} tone="error" />
+            ) : null}
+
+            {!loading && !error && filteredBooks.length === 0 ? (
+              <StateCardUi
+                title="No matches"
+                message="Nothing matched that search. Try another title or author."
+              />
+            ) : null}
+
+            {!loading && !error && filteredBooks.length > 0 ? (
+              <section className="book-grid">
+                {filteredBooks.map((book) => (
+                  <BookCardUi
+                    key={book.id}
+                    book={book}
+                    isFavorite={favoriteIds.includes(book.id)}
+                    onToggleFavorite={onToggleFavorite}
+                  />
+                ))}
+              </section>
+            ) : null}
+          </main>
+        );
+      }
+
+      function BookDetailPage({ favoriteIds, onToggleFavorite }) {
+        const { id } = useParams();
+        const [book, setBook] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState("");
+
+        useEffect(() => {
+          let isMounted = true;
+
+          async function loadBook() {
+            try {
+              setLoading(true);
+              setError("");
+
+              const nextBook = await fetchBookById(id);
+              if (isMounted) {
+                setBook(nextBook);
+              }
+            } catch (fetchError) {
+              if (isMounted) {
+                setError(fetchError.message || "Something went wrong while loading the book.");
+              }
+            } finally {
+              if (isMounted) {
+                setLoading(false);
+              }
+            }
+          }
+
+          loadBook();
+
+          return () => {
+            isMounted = false;
+          };
+        }, [id]);
+
+        if (loading) {
+          return (
+            <main className="page-shell">
+              <StateCardUi title="Loading..." message="Pulling the selected book from the API." />
+            </main>
+          );
+        }
+
+        if (error || !book) {
+          return (
+            <main className="page-shell">
+              <StateCardUi
+                title="Book not available"
+                message={error || "The book could not be found."}
+                tone="error"
+              />
+            </main>
+          );
+        }
+
+        var isFavorite = favoriteIds.includes(book.id);
+
+        return (
+          <main className="page-shell">
+            <section className="detail-card">
+              <div className="detail-cover-wrap">
+                <img className="detail-cover" src={book.cover} alt={`${book.title} cover`} />
+              </div>
+
+              <div className="detail-copy">
+                <p className="eyebrow">Book Detail Page</p>
+                <h1>{book.title}</h1>
+                <p className="detail-authors">
+                  {book.authors.length ? book.authors.join(", ") : "Author not listed"}
+                </p>
+
+                <div className="detail-buttons">
+                  <SmallButtonUi onClick={() => onToggleFavorite(book.id)} active={isFavorite}>
+                    {isFavorite ? "Remove Favorite" : "Add to Favorites"}
+                  </SmallButtonUi>
+                  <Link className="ghost-link" to="/favorites">
+                    View Favorites
+                  </Link>
+                </div>
+
+                <div className="detail-meta">
+                  <div>
+                    <span>Publisher</span>
+                    <strong>{book.publisher}</strong>
+                  </div>
+                  <div>
+                    <span>Published</span>
+                    <strong>{book.publishedDate}</strong>
+                  </div>
+                  <div>
+                    <span>Pages</span>
+                    <strong>{book.pageCount}</strong>
+                  </div>
+                  <div>
+                    <span>Categories</span>
+                    <strong>
+                      {book.categories.length ? book.categories.join(", ") : "Not listed"}
+                    </strong>
+                  </div>
+                </div>
+
+                <section className="description-box">
+                  <h2>About this book</h2>
+                  <p>{stripHtml(book.description)}</p>
+                </section>
+              </div>
+            </section>
+          </main>
+        );
+      }
+
+      function FavoritesPage({ favoriteIds, onToggleFavorite }) {
+        const [books, setBooks] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState("");
+
+        useEffect(() => {
+          let isMounted = true;
+
+          async function loadFavorites() {
+            try {
+              setLoading(true);
+              setError("");
+
+              if (favoriteIds.length === 0) {
+                if (isMounted) {
+                  setBooks([]);
+                }
+                return;
+              }
+
+              var responses = await Promise.allSettled(
+                favoriteIds.map(function(bookId) {
+                  return fetchBookById(bookId);
+                })
+              );
+
+              var nextBooks = responses
+                .filter(function(result) {
+                  return result.status === "fulfilled";
+                })
+                .map(function(result) {
+                  return result.value;
+                });
+
+              var rejectedCount = responses.filter(function(result) {
+                return result.status === "rejected";
+              }).length;
+
+              if (isMounted) {
+                setBooks(nextBooks);
+                if (rejectedCount > 0) {
+                  setError("A couple of favorite books did not load, but the rest are shown below.");
+                }
+              }
+            } catch (fetchError) {
+              if (isMounted) {
+                setError(fetchError.message || "Something went wrong while loading favorites.");
+              }
+            } finally {
+              if (isMounted) {
+                setLoading(false);
+              }
+            }
+          }
+
+          loadFavorites();
+
+          return () => {
+            isMounted = false;
+          };
+        }, [favoriteIds]);
+
+        return (
+          <main className="page-shell">
+            <section className="favorites-head">
+              <div>
+                <p className="eyebrow">Favorites Display</p>
+                <h1>Your saved books</h1>
+                <p className="muted-copy">
+                  Favorite IDs are stored in localStorage and the page fetches each book again from
+                  the API.
+                </p>
+              </div>
+              <div className="favorites-badge">{favoriteIds.length} saved</div>
+            </section>
+
+            {loading ? (
+              <StateCardUi title="Loading..." message="Finding your favorite books." />
+            ) : null}
+
+            {!loading && error ? (
+              <StateCardUi title="Heads up" message={error} tone="error" />
+            ) : null}
+
+            {!loading && books.length === 0 ? (
+              <StateCardUi
+                title="No favorites yet"
+                message="Open a book detail page or tap the favorite button on a card to save one."
+              />
+            ) : null}
+
+            {!loading && books.length > 0 ? (
+              <section className="book-grid">
+                {books.map((book) => (
+                  <BookCardUi
+                    key={book.id}
+                    book={book}
+                    isFavorite={favoriteIds.includes(book.id)}
+                    onToggleFavorite={onToggleFavorite}
+                  />
+                ))}
+              </section>
+            ) : null}
+          </main>
+        );
+      }
+
+      function App() {
+        var favoriteIdsState = useState(readFavoriteIds());
+        var favoriteIds = favoriteIdsState[0];
+        var setFavoriteIds = favoriteIdsState[1];
+
+        useEffect(function() {
+          window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favoriteIds));
+        }, [favoriteIds]);
+
+        function handleToggleFavorite(bookId) {
+          setFavoriteIds(function(current) {
+            if (current.includes(bookId)) {
+              return current.filter(function(id) {
+                return id !== bookId;
+              });
+            }
+            return current.concat(bookId);
+          });
+        }
+
+        return (
+          <RouterShell>
+            <div className="app-shell">
+              <TopNavUi />
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    <HomePage
+                      favoriteIds={favoriteIds}
+                      onToggleFavorite={handleToggleFavorite}
+                    />
+                  }
+                />
+                <Route
+                  path="/books/:id"
+                  element={
+                    <BookDetailPage
+                      favoriteIds={favoriteIds}
+                      onToggleFavorite={handleToggleFavorite}
+                    />
+                  }
+                />
+                <Route
+                  path="/favorites"
+                  element={
+                    <FavoritesPage
+                      favoriteIds={favoriteIds}
+                      onToggleFavorite={handleToggleFavorite}
+                    />
+                  }
+                />
+                <Route
+                  path="*"
+                  element={
+                    <main className="page-shell">
+                      <StateCardUi
+                        title="Page not found"
+                        message="That route does not exist. Use the navbar to get back on track."
+                      />
+                    </main>
+                  }
+                />
+              </Routes>
+            </div>
+          </RouterShell>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
